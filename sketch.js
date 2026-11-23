@@ -2,14 +2,12 @@
 const W = 720;
 const H = 1280;
 
-// 时钟位于画面高度的三分之一
+// 时钟位置
 const CLOCK_Y = H / 4;
 const CLOCK_X = W / 3;
 
-// 海洋从秒数字下方开始
+// 海洋起点
 const SOURCE_Y = CLOCK_Y + 188;
-
-// 秒数字所在区域的中心
 const SOURCE_X = 576;
 
 let pg;
@@ -33,7 +31,7 @@ const GLYPH_STEP = 3;
 const MAX_FALLING = 1800;
 const MAX_RIPPLES = 120;
 
-// 海洋粒子循环容量
+// 海洋粒子容量
 const OCEAN_CAPACITY = W * 9;
 
 // =====================================
@@ -42,20 +40,21 @@ const OCEAN_CAPACITY = W * 9;
 
 function setup() {
   pixelDensity(1);
+  frameRate(30);
 
   const renderer = createCanvas(W, H);
 
   // 手机全屏显示
   renderer.elt.style.width = "100vw";
-renderer.elt.style.height = "auto";
-renderer.elt.style.maxHeight = "100dvh";
-renderer.elt.style.objectFit = "contain";
-renderer.elt.style.display = "block";
-renderer.elt.style.position = "fixed";
-renderer.elt.style.top = "50%";
-renderer.elt.style.left = "50%";
-renderer.elt.style.transform = "translate(-50%, -50%)";
-renderer.elt.style.margin = "0";
+  renderer.elt.style.height = "auto";
+  renderer.elt.style.maxHeight = "100dvh";
+  renderer.elt.style.objectFit = "contain";
+  renderer.elt.style.display = "block";
+  renderer.elt.style.position = "fixed";
+  renderer.elt.style.top = "50%";
+  renderer.elt.style.left = "50%";
+  renderer.elt.style.transform = "translate(-50%, -50%)";
+  renderer.elt.style.margin = "0";
 
   pg = createGraphics(100, 130);
   pg.pixelDensity(1);
@@ -116,10 +115,8 @@ function checkTime() {
     releaseDigit(i);
     clockGroups[i] = createDigit(now[i], i);
 
-    // 秒数字变化时，在其下方产生涟漪
     if (i === 6 || i === 7) {
       let x = getSlotX(i) + SLOT / 2;
-
       addRipple(x, SOURCE_Y, 1);
     }
   }
@@ -209,24 +206,30 @@ function drawClock() {
       circle(p.x, p.y, p.size);
     }
   }
-
- 
 }
 
 // =====================================
 // FALLING DIGITS
 // =====================================
 
-// 时间变化时，保存完整数字形状
 function releaseDigit(index) {
   let group = clockGroups[index];
 
   if (!group) return;
 
+  let bottomY = -Infinity;
+
+  for (let p of group.points) {
+    if (p.y > bottomY) {
+      bottomY = p.y;
+    }
+  }
+
   fallingDigits.push({
     points: group.points,
     offset: 0,
-    speed: 8.8
+    speed: 8.8,
+    bottomY: bottomY
   });
 }
 
@@ -238,19 +241,11 @@ function updateFalling() {
 
   // 完整数字整体下落
   for (let i = fallingDigits.length - 1; i >= 0; i--) {
-
     let d = fallingDigits[i];
 
-    // 保持数字原有形状
     d.offset += d.speed;
 
-    // 计算数字最下方的位置
-    let bottomY = Math.max(
-      ...d.points.map(p => p.y)
-    );
-
-    // 整个数字到达海面后才开始消散
-    if (bottomY + d.offset >= SOURCE_Y) {
+    if (d.bottomY + d.offset >= SOURCE_Y) {
 
       for (let p of d.points) {
 
@@ -261,16 +256,13 @@ function updateFalling() {
         falling.push({
           x: p.x,
           y: p.y + d.offset,
-
           vx: random(-1.2, 1.2),
           vy: random(-0.5, 1.2),
-
           size: random(0.8, 1.5),
           alpha: random(210, 255)
         });
       }
 
-      // 数字抵达海面，产生涟漪
       let rippleX = d.points.reduce(
         (sum, p) => sum + p.x,
         0
@@ -284,24 +276,20 @@ function updateFalling() {
 
   // 海面颗粒扩散、消散
   for (let i = falling.length - 1; i >= 0; i--) {
-
     let p = falling[i];
 
     p.x += p.vx;
     p.y += p.vy;
 
-    // 逐渐减速
     p.vx *= 0.985;
     p.vy *= 0.985;
 
-    // 逐渐缩小
     p.size *= 0.99;
-
-    // 逐渐消失
     p.alpha -= 3;
 
     if (p.alpha <= 0 || p.size < 0.1) {
-      falling.splice(i, 1);
+      falling[i] = falling[falling.length - 1];
+      falling.pop();
     }
   }
 }
@@ -313,11 +301,9 @@ function updateFalling() {
 function drawFalling() {
   noStroke();
 
-  // 绘制保持完整形状的下落数字
+  // 完整形状的下落数字
   for (let d of fallingDigits) {
-
     for (let p of d.points) {
-
       fill(245, 250, 255, p.alpha);
 
       circle(
@@ -328,40 +314,27 @@ function drawFalling() {
     }
   }
 
-  // 绘制抵达海面后消散的颗粒
+  // 海面消散颗粒
   for (let p of falling) {
-
     fill(245, 250, 255, p.alpha);
-
-    circle(
-      p.x,
-      p.y,
-      p.size
-    );
+    circle(p.x, p.y, p.size);
   }
 }
 
 // =====================================
 // OCEAN PARTICLES
-// Original Noise movement algorithm
 // =====================================
 
 function updateOcean() {
 
-  // 粒子扩散范围随时间逐渐扩大
-let spread = min(
-  W * 0.8,
-  W * 0.8 + oceanTime * 0.035
-);
+  let spread = W * 0.8;
 
   // 每帧生成 9 个粒子
   for (let i = 0; i < 9; i++) {
 
     let index = oceanTime % OCEAN_CAPACITY;
 
-    // 从秒数字下方的涟漪中心生成
     let x = SOURCE_X + random(-spread, spread);
-
     x = constrain(x, 0, W);
 
     ocean[index] = {
@@ -374,10 +347,18 @@ let spread = min(
     oceanTime++;
   }
 
-  // 原始参考算法：Noise 控制运动
-  for (let p of ocean) {
+  // Noise 控制运动
+  for (let i = 0; i < ocean.length; i++) {
+
+    let p = ocean[i];
 
     if (!p) continue;
+
+    // 离开画面后回收
+    if (p.y > H + 20 || p.x < -20 || p.x > W + 20) {
+      ocean[i] = null;
+      continue;
+    }
 
     p.s *= 0.997;
 
@@ -387,19 +368,13 @@ let spread = min(
       oceanTime / W
     );
 
-    // 横向运动
-    if (n > 0.4) {
-      p.x += 0;
-    } else {
-      p.x += n % 0.1 > 0.05 ? 1 : -1;
-      p.g = 0;
-    }
-
-    // 纵向运动
+    // 横向与纵向运动
     if (n > 0.4) {
       p.g += 0.5;
       p.y += p.g;
     } else {
+      p.x += n % 0.1 > 0.05 ? 1 : -1;
+      p.g = 0;
       p.y += 0.5;
     }
   }
@@ -407,18 +382,14 @@ let spread = min(
 
 // =====================================
 // DRAW OCEAN
-// Original trails and blur
 // =====================================
 
 function drawOcean() {
 
-  // 黑色半透明覆盖，保留上一帧轨迹
+  // 保留粒子拖影
   seaLayer.background(0, 9);
 
-  // 原参考代码中的模糊效果
-  seaLayer.filter(BLUR);
-
-  // 蓝色 Noise 粒子
+  // 绘制蓝色 Noise 粒子
   for (let p of ocean) {
 
     if (!p) continue;
@@ -457,7 +428,6 @@ function addRipple(x, y, initialRadius = 1) {
     strength: 1
   });
 
-  // 限制涟漪数量，避免长期运行造成性能下降
   if (ripples.length > MAX_RIPPLES) {
     ripples.shift();
   }
@@ -467,13 +437,9 @@ function updateRipples() {
   for (let i = ripples.length - 1; i >= 0; i--) {
     let r = ripples[i];
 
-    // 向外扩散
     r.radius += 0.8;
-
-    // 逐渐淡出
     r.alpha *= 0.94;
 
-    // 动画结束后移除
     if (r.alpha < 2) {
       ripples.splice(i, 1);
     }
@@ -503,7 +469,6 @@ function drawRipples() {
 function drawSourceGlow() {
   noStroke();
 
-  // 秒数字下方的柔和蓝色光源
   for (let i = 0; i < 5; i++) {
     fill(80, 165, 255, 5);
 
@@ -515,7 +480,6 @@ function drawSourceGlow() {
     );
   }
 
-  // 中心光点
   fill(180, 225, 255, 65);
 
   circle(
